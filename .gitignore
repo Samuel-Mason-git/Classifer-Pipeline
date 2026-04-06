@@ -29,10 +29,10 @@ ENV/
 # =========================
 .env
 
+
 # =========================
 # Data (ignore EVERYTHING)
 # =========================
-data/
 *.csv
 *.parquet
 *.feather
@@ -41,7 +41,6 @@ data/
 # =========================
 # Models / artifacts
 # =========================
-models/
 *.pkl
 *.joblib
 *.h5
