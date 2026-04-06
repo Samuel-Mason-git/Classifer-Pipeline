@@ -1,10 +1,14 @@
 from __future__ import annotations
+
 import json
+from datetime import datetime
 from hashlib import md5
 from pathlib import Path
-from datetime import datetime
 
-TEST_LOG = Path("tests/TEST_RUNS.md")
+# Anchor paths to repo root so writes don't depend on the current working dir.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+TEST_LOG = PROJECT_ROOT / "tests" / "TEST_RUNS.md"
+
 
 def log_test_run_md(
     model_name: str,
@@ -14,10 +18,10 @@ def log_test_run_md(
     notes: str = "",
     commit: str | None = None,
     primary_metric: str = "f1",
-    ):
+) -> str:
     """
-    Appends/updates a bullet under '## Latest' in tests/TEST_RUNS.md.
-    De-duplicates by run_id (model+params+data_hash).
+    Append/update a bullet under '## Latest' in tests/TEST_RUNS.md.
+    De-duplicates by run_id (model+params+data_hash) so reruns overwrite.
     """
     TEST_LOG.parent.mkdir(parents=True, exist_ok=True)
     TEST_LOG.touch(exist_ok=True)
@@ -46,18 +50,19 @@ def log_test_run_md(
     TEST_LOG.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return run_id
 
+
 def split_data_by_time(df, feature_cols, target_col, train_ratio=0.7, val_ratio=0.15):
-    # assumes df is sorted oldest → newest
+    """Chronological split into train/val/test; expects df sorted oldest -> newest."""
     n = len(df)
     train_end = int(n * train_ratio)
     val_end = int(n * (train_ratio + val_ratio))
 
     train = df.iloc[:train_end].copy()
-    val   = df.iloc[train_end:val_end].copy()
-    test  = df.iloc[val_end:].copy()
+    val = df.iloc[train_end:val_end].copy()
+    test = df.iloc[val_end:].copy()
 
     X_train, y_train = train[feature_cols], train[target_col]
-    X_val,   y_val   = val[feature_cols], val[target_col]
-    X_test,  y_test  = test[feature_cols], test[target_col]
+    X_val, y_val = val[feature_cols], val[target_col]
+    X_test, y_test = test[feature_cols], test[target_col]
 
     return X_train, X_val, X_test, y_train, y_val, y_test, train, val, test

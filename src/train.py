@@ -4,7 +4,6 @@ from hashlib import md5
 
 import joblib
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
@@ -12,8 +11,11 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
 )
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+
+try:
+    from xgboost import XGBClassifier
+except ImportError as exc:  # friendly message if dependency missing
+    raise SystemExit("xgboost is not installed. Run `poetry add xgboost` and reinstall deps.") from exc
 
 from utils.ml_helpers import split_data_by_time, log_test_run_md
 
@@ -32,11 +34,8 @@ def hash_dataset(df: pd.DataFrame) -> str:
     return md5(payload).hexdigest()[:12]
 
 
-def train_model(X_train, y_train):
-    model = Pipeline([
-        ("scaler", StandardScaler()),
-        ("classifier", LogisticRegression(max_iter=1000, random_state=42)),
-    ])
+def train_model(X_train, y_train, model_params):
+    model = XGBClassifier(**model_params)
     model.fit(X_train, y_train)
     return model
 
@@ -60,9 +59,9 @@ def evaluate_model(model, X, y, label="SET"):
     return metrics
 
 
-def save_artifacts(model, metrics):
-    model_path = project_root / "models" / "logreg_model.joblib"
-    metrics_path = project_root / "models" / "metrics.json"
+def save_artifacts(model, metrics, model_name):
+    model_path = project_root / "models" / f"{model_name}.joblib"
+    metrics_path = project_root / "models" / f"{model_name}_metrics.json"
 
     model_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, model_path)
@@ -89,36 +88,58 @@ if __name__ == "__main__":
     ]
     target_col = "target_next_day_up"
 
+    train_ratio = 0.7
+    val_ratio = 0.15
+    
     X_train, X_val, X_test, y_train, y_val, y_test, train, val, test = split_data_by_time(
         df=df,
         feature_cols=feature_cols,
         target_col=target_col,
-        train_ratio=0.7,
-        val_ratio=0.15,
+        train_ratio=train_ratio,
+        val_ratio=val_ratio,
     )
 
-    model = train_model(X_train, y_train)
+    MODEL_PARAMS = {
+        "n_estimators": 100,
+        "learning_rate": 0.03,
+        "max_depth": 2,
+        "min_child_weight": 3,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_alpha": 1.0,
+        "reg_lambda": 2.0,
+        "objective": "binary:logistic",
+        "eval_metric": "logloss",
+        "random_state": 42,
+        "n_jobs": -1,
+    }
+
+    model = train_model(X_train, y_train, MODEL_PARAMS)
 
     val_metrics = evaluate_model(model, X_val, y_val, label="VALIDATION")
     test_metrics = evaluate_model(model, X_test, y_test, label="TEST")
 
-    save_artifacts(model, test_metrics)
+    all_metrics = {
+        "validation": val_metrics,
+        "test": test_metrics,
+    }
+    save_artifacts(model, all_metrics, model_name="xgboost_model")
 
     data_hash = hash_dataset(df)
     params = {
-        "model": "LogisticRegression",
-        "max_iter": 1000,
+        "model": "XGBClassifier",
+        **MODEL_PARAMS,
         "features": feature_cols,
-        "train_ratio": 0.7,
-        "val_ratio": 0.15,
+        "train_ratio": train_ratio,
+        "val_ratio": val_ratio,
     }
 
     run_id = log_test_run_md(
-        model_name="logistic_regression",
+        model_name="xgboost_classifier",
         params=params,
         metrics=test_metrics,
         data_hash=data_hash,
-        notes="Baseline logistic regression on BTC daily feature set",
+        notes="Xgboost classifier on BTC daily feature set",
         primary_metric="f1",
     )
 
